@@ -1,0 +1,8 @@
+target/
+.idea/
+target/
+project/target/
+project/project/target/
+src/main/resources/CAMT/
+.DS_Store
+src/main/rescources/.DS_Store
