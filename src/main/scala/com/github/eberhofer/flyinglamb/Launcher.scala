@@ -1,9 +1,7 @@
 package com.github.eberhofer.flyinglamb
 
 import akka.actor.typed.Behavior
-import akka.actor.typed.scaladsl.AbstractBehavior
 import akka.actor.typed.scaladsl.Behaviors
-import com.github.eberhofer.flyinglamb.FileRetriever.ProcessCAMTFiles
 
 
 /**

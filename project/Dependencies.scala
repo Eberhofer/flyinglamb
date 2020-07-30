@@ -2,7 +2,7 @@ import sbt._
 
 object Dependencies {
   private object Version {
-    val akka = "2.6.3"
+    val akka = "2.6.7"
     val akkaHttp = "10.1.12"
     val flyway = "6.2.4"
     val scalaTest = "3.1.0"
@@ -17,11 +17,13 @@ object Dependencies {
     "org.flywaydb" % "flyway-core" % Version.flyway,
     "org.scalatest" %% "scalatest" % Version.scalaTest
   )
+
   private val akka: Seq[ModuleID] = Seq(
     "com.typesafe.akka" %% "akka-actor-typed" % Version.akka,
     "com.typesafe.akka" %% "akka-actor-testkit-typed" % Version.akka % Test,
-    "com.typesafe.akka" %% "akka-http"                % Version.,
-
+    "com.typesafe.akka" %% "akka-http" % Version.akkaHttp,
+    "com.typesafe.akka" %% "akka-stream" % Version.akka,
+    "com.typesafe.akka" %% "akka-http-spray-json" % Version.akkaHttp
   )
 
   private val slick: Seq[ModuleID] = Seq(

@@ -22,8 +22,9 @@ object FileRetriever {
 class FileRetriever(context: ActorContext[FileRetriever.FileRetrieverRequest]) extends AbstractBehavior[FileRetriever.FileRetrieverRequest](context) {
   import FileRetriever._
 
-  context.log.info("Luffy legt los")
-  val files = getListOfFiles("/Users/Shared/CAMT/Inbox")
+  context.log.info(" legt los")
+  val filePath = context.system.settings.config.getString("filePath")
+  val files = getListOfFiles(filePath)
   var counter = 0
   val sanji = context.spawn(DatabaseHandler("flyinglamb"),"sanji-flyinglamb") // the db handler
 
@@ -31,10 +32,11 @@ class FileRetriever(context: ActorContext[FileRetriever.FileRetrieverRequest]) e
     case ProcessCAMTFiles =>
       context.log.info("FileRetriever gets to work")
       files
-        .foreach {f =>
+          .filter(f => f.getName.take(1) != '.')
+        .foreach { f =>
           counter += 1
           println(f.getName)
-          val camtFileParser =  context.spawn(CamtFileParser(f.getPath, f.getName, sanji),  "camt_file_parser_"+counter.toString)
+          val camtFileParser = context.spawn(CamtFileParser(f.getPath, f.getName, sanji), "camt_file_parser_" + counter.toString)
           camtFileParser ! WriteCamtFile
         }
       this

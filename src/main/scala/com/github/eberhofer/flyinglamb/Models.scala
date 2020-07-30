@@ -3,7 +3,9 @@ package com.github.eberhofer.flyinglamb
 import java.util.UUID
 import java.time.LocalDateTime
 
+
 sealed trait Model
+
 case class CamtFile(
                      id: Option[UUID],
                      fileName: String,
@@ -18,6 +20,7 @@ case class CamtFile(
                      openBalance: BigDecimal,
                      closeBalance: BigDecimal,
                    ) extends Model
+case class CamtFiles(camtFiles: Seq[CamtFile])
 
 case class CamtFileContent(
                           camtFileId: UUID,
@@ -37,5 +40,29 @@ case class CamtTransaction(
                           accountServicerReference: String,
                           transactionReferences: String,  // TODO: Elem,
                           bankTransactionCode: String // TODO:  Elem
-                          ) extends Model
+                          ) extends Model {
+  def smallCamtTransaction = SmallCamtTransaction(id, iban, bookingDate, valueDate, currency, amount, additionalInfo)
+}
+
+case class CamtTransactions(camtTransactions: Seq[CamtTransaction])
+
+case class SmallCamtTransaction(
+                                 id: Option[UUID],
+                                 iban: String,
+                                 bookingDate: LocalDateTime,
+                                 valueDate: LocalDateTime,
+                                 currency: String,
+                                 amount: BigDecimal,
+                                 additionalInfo: String
+                               )
+
+case class SmallCamtTransactions(smallCamtTransactions: Seq[SmallCamtTransaction])
+
+case class StockTransaction(
+                           id: Option[UUID],
+                           name: String,
+
+
+                           )
+case class StockTransactions(stockTransactions: Seq[StockTransaction])
 
