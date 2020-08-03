@@ -60,9 +60,16 @@ case class SmallCamtTransactions(smallCamtTransactions: Seq[SmallCamtTransaction
 
 case class StockTransaction(
                            id: Option[UUID],
-                           name: String,
-
-
+                           name: String
                            )
 case class StockTransactions(stockTransactions: Seq[StockTransaction])
 
+case class Credential(
+               id: Option[UUID],
+               email: String,
+               password: String
+               )
+
+case class Credentials(credentials: Seq[Credential])
+
+case class Auth()

@@ -61,3 +61,13 @@ extends Table[CamtTransaction](tag, "camt_transaction") {
   def * : ProvenShape[CamtTransaction] =
     (id.?, camtFileId, iban, bookingDate, valueDate, isReversal, currency, amount, additionalInfo, accountServicerReference, transactionReferences, bankTransactionCode) <> (CamtTransaction.tupled, CamtTransaction.unapply)
 }
+
+
+class CredentialTable(tag: Tag)
+  extends Table[Credential](tag, "credential") {
+  def id: Rep[UUID] = column[UUID]("id", O.PrimaryKey, O.Default(UUID.randomUUID()))
+  def email: Rep[String] = column[String]("email")
+  def password: Rep[String] = column[String]("password")
+
+  def * : ProvenShape[Credential] = (id.?, email, password) <> ((Credential.apply _).tupled, Credential.unapply)
+}

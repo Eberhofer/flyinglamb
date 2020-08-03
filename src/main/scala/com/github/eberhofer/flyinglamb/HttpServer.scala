@@ -13,10 +13,13 @@ import akka.http.scaladsl.server.Directives._
 import scala.io.StdIn
 import org.postgresql.util.PSQLException
 import slick.jdbc.PostgresProfile.api._
+import com.github.t3hnar.bcrypt._
 
-import scala.concurrent.Await
+import scala.concurrent.{Await, Future}
 import scala.concurrent.duration.Duration
 import spray.json._
+
+import scala.util.{Failure, Success}
 
 object CamtTransactionJsonProtocol extends SprayJsonSupport with DefaultJsonProtocol {
   implicit object UUIDFormat extends JsonFormat[UUID] {
@@ -43,6 +46,7 @@ object CamtTransactionJsonProtocol extends SprayJsonSupport with DefaultJsonProt
   implicit val camtTransactionsFormat = jsonFormat1(CamtTransactions)
   implicit val smallCamtTransactionFormat = jsonFormat7(SmallCamtTransaction)
   implicit val smallCamtTransactionsFormat = jsonFormat1(SmallCamtTransactions)
+  implicit val credentialFormat = jsonFormat3(Credential)
 }
 
 
@@ -56,7 +60,16 @@ object HttpServer {
     // needed for the future flatMap/onComplete in the end
     implicit val executionContext = system.dispatcher
 
+
     val db = Database.forConfig("flyinglamb")
+    def createCredential(credential: Credential): Future[Credential] = {
+      val credentials = TableQuery[CredentialTable]
+      val secureCredential: Credential = credential.password.bcryptSafeBounded match {
+        case Success(pwHash) => credential.copy(id = Some(UUID.randomUUID()), password = pwHash)
+        case Failure(error) => throw error
+      }
+      db.run(credentials returning credentials += secureCredential)
+    }
 
     val port = system.settings.config.getInt("httpServer.port")
     println(s"port $port")
@@ -67,6 +80,48 @@ object HttpServer {
           complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "<h1>top level</h1>"))
         }
       },
+      path("credentials") {
+        pathEndOrSingleSlash {
+          post {
+            decodeRequest {
+              entity(as[Credential]) { credential =>
+                val credentialsQuery: DBIO[Seq[Credential]] = TableQuery[CredentialTable].filter(c => c.email === credential.email).result
+                val credentials: Seq[Credential] = Await.result(
+                  db.run(credentialsQuery),
+                  Duration.apply(20, TimeUnit.SECONDS)
+                )
+                credentials match {
+                  case h :: Nil => complete(StatusCodes.BadRequest, "Email already exists.")
+                  case Nil => complete(StatusCodes.Created, createCredential(credential))
+                }
+              }
+            }
+          }
+        }
+      },
+      /* TODO - WIP
+      path("auth") {
+        pathEndOrSingleSlash {
+          post {
+            decodeRequest {
+              entity(as[Credential]) { credential =>
+                val credentialsQuery: DBIO[Seq[Credential]] = TableQuery[CredentialTable].filter(c => c.email === credential.email).result
+                val credentialsCandidate: Option[Credential] = Await.result(
+                  db.run(credentialsQuery),
+                  Duration.apply(20, TimeUnit.SECONDS)
+                ).headOption
+                credentialsCandidate match {
+                  case Some(c) => credential.password.bcryptSafeBounded match {
+                    case Success(true) =>
+                    case _ => complete(StatusCodes.Unauthorized, "No user matched the credentials.")
+                  }
+                  case _ => complete(StatusCodes.Unauthorized, "No user matched the credentials.")
+                }
+              }
+            }
+          }
+        }
+      },  */
       path("camt") {
         get {
           complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "<h1>Say hello to akka-http</h1>"))
@@ -129,4 +184,5 @@ object HttpServer {
       .flatMap(_.unbind()) // trigger unbinding from the port
       .onComplete(_ => system.terminate()) // and shutdown when done
   }
+
 }
