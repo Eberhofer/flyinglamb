@@ -11,11 +11,13 @@ object Dependencies {
     val postgres = "42.2.10"
     val h2 = "1.4.192"
     val slick_pg = "0.18.1"
+    val scalaBcrypt = "4.3.0"
   }
   private val utils: Seq[ModuleID] = Seq(
     "ch.qos.logback" % "logback-classic" % Version.logbackVersion,
     "org.flywaydb" % "flyway-core" % Version.flyway,
-    "org.scalatest" %% "scalatest" % Version.scalaTest
+    "org.scalatest" %% "scalatest" % Version.scalaTest,
+    "com.github.t3hnar" %% "scala-bcrypt" % Version.scalaBcrypt
   )
 
   private val akka: Seq[ModuleID] = Seq(
