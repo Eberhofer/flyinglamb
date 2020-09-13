@@ -3,7 +3,7 @@ import sbt._
 object Dependencies {
   private object Version {
     val akka = "2.6.7"
-    val akkaHttp = "10.1.12"
+    val akkaHttp = "10.2.0"
     val flyway = "6.2.4"
     val scalaTest = "3.1.0"
     val logbackVersion = "1.2.3"
@@ -12,6 +12,7 @@ object Dependencies {
     val h2 = "1.4.192"
     val slick_pg = "0.18.1"
     val scalaBcrypt = "4.3.0"
+    val akkaHttpCors = "1.1.0"
   }
   private val utils: Seq[ModuleID] = Seq(
     "ch.qos.logback" % "logback-classic" % Version.logbackVersion,
@@ -25,7 +26,8 @@ object Dependencies {
     "com.typesafe.akka" %% "akka-actor-testkit-typed" % Version.akka % Test,
     "com.typesafe.akka" %% "akka-http" % Version.akkaHttp,
     "com.typesafe.akka" %% "akka-stream" % Version.akka,
-    "com.typesafe.akka" %% "akka-http-spray-json" % Version.akkaHttp
+    "com.typesafe.akka" %% "akka-http-spray-json" % Version.akkaHttp,
+    "ch.megard" %% "akka-http-cors" % Version.akkaHttpCors
   )
 
   private val slick: Seq[ModuleID] = Seq(

@@ -50,8 +50,11 @@ object CamtTransactionJsonProtocol extends SprayJsonSupport with DefaultJsonProt
 }
 
 
+
+
 object HttpServer {
   import CamtTransactionJsonProtocol._
+  import ch.megard.akka.http.cors.scaladsl.CorsDirectives._
 
   def main(args: Array[String]) {
 
@@ -99,7 +102,6 @@ object HttpServer {
           }
         }
       },
-      /* TODO - WIP
       path("auth") {
         pathEndOrSingleSlash {
           post {
@@ -111,8 +113,9 @@ object HttpServer {
                   Duration.apply(20, TimeUnit.SECONDS)
                 ).headOption
                 credentialsCandidate match {
-                  case Some(c) => credential.password.bcryptSafeBounded match {
+                  case Some(c) => credential.password.isBcryptedSafeBounded(c.password) match {
                     case Success(true) =>
+                      complete(StatusCodes.OK, c)
                     case _ => complete(StatusCodes.Unauthorized, "No user matched the credentials.")
                   }
                   case _ => complete(StatusCodes.Unauthorized, "No user matched the credentials.")
@@ -121,49 +124,52 @@ object HttpServer {
             }
           }
         }
-      },  */
+      },
       path("camt") {
         get {
           complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "<h1>Say hello to akka-http</h1>"))
         }
       },
-      pathPrefix("camttransactions"){
-        concat(
-          //pathEndOrSingleSlash {
-            get {
-              parameters(("iban".?, "startvaluedate".?, "endvaluedate".?)) {
-                (iban, startValueDate, endValueDate) =>
-                  println(s"iban = $iban")
-                  val startValueLocalDateTime = LocalDateTime.parse(startValueDate.getOrElse("2019-01-01T00:00"))
-                  val endValueLocalDateTime = endValueDate match {
-                    case None => LocalDateTime.now()
-                    case Some(string) => LocalDateTime.parse(string)
-                  }
-                  val camtTransactions = for {
-                    ct <- TableQuery[CamtTransactionTable]
-                    if ct.iban === (if (iban.isEmpty) ct.iban else iban.get)
-                    if ct.valueDate >= startValueLocalDateTime && ct.valueDate <= endValueLocalDateTime
-                  } yield ct
-                val camtTransactionsAction: DBIO[Seq[CamtTransaction]] = camtTransactions.result
-                val camtTransactionsFuture = db.run(camtTransactionsAction)
-                val camtTransactionList: Seq[CamtTransaction] = Await.result(camtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
-                val camtTransactionJson = camtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
-                complete(HttpEntity(ContentTypes.`application/json`, camtTransactionJson.toString))
+      handleRejections(corsRejectionHandler) {
+        cors() {
+          pathPrefix("camttransactions"){
+            concat(
+              //pathEndOrSingleSlash {
+              get {
+                parameters("iban".?, "startvaluedate".?, "endvaluedate".?) {
+                  (iban, startValueDate, endValueDate) =>
+                    println(s"iban = $iban")
+                    val startValueLocalDateTime = LocalDateTime.parse(startValueDate.getOrElse("2019-01-01T00:00"))
+                    val endValueLocalDateTime = endValueDate match {
+                      case None => LocalDateTime.now()
+                      case Some(string: String) => LocalDateTime.parse(string)
+                    }
+                    val camtTransactions = for {
+                      ct <- TableQuery[CamtTransactionTable]
+                      if ct.iban === (if (iban.isEmpty) ct.iban else iban.get)
+                      if ct.valueDate >= startValueLocalDateTime && ct.valueDate <= endValueLocalDateTime
+                    } yield ct
+                    val camtTransactionsAction: DBIO[Seq[CamtTransaction]] = camtTransactions.result
+                    val camtTransactionsFuture = db.run(camtTransactionsAction)
+                    val camtTransactionList: Seq[CamtTransaction] = Await.result(camtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
+                    val camtTransactionJson = camtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
+                    complete(HttpEntity(ContentTypes.`application/json`, camtTransactionJson.toString))
+                }
+              },
+            path("small") {
+                get {
+                  val camtTransactions = TableQuery[CamtTransactionTable]
+                  val camtTransactionsAction: DBIO[Seq[CamtTransaction]] = camtTransactions.result
+                  val camtTransactionsFuture = db.run(camtTransactionsAction)
+                  val camtTransactionList: Seq[CamtTransaction] = Await.result(camtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
+                  val smallCamtTransactionList = camtTransactionList.map(_.smallCamtTransaction)
+                  val smallCamtTransactionJson = smallCamtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
+                  complete(HttpEntity(ContentTypes.`application/json`, smallCamtTransactionJson.toString))
+                }
               }
-            //}
-          },
-          path("small") {
-            get {
-              val camtTransactions = TableQuery[CamtTransactionTable]
-              val camtTransactionsAction: DBIO[Seq[CamtTransaction]] = camtTransactions.result
-              val camtTransactionsFuture = db.run(camtTransactionsAction)
-              val camtTransactionList: Seq[CamtTransaction] = Await.result(camtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
-              val smallCamtTransactionList = camtTransactionList.map(_.smallCamtTransaction)
-              val smallCamtTransactionJson = smallCamtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
-              complete(HttpEntity(ContentTypes.`application/json`, smallCamtTransactionJson.toString))
-            }
+            )
           }
-        )
+        }
       },
       path("processCamtTransactions"){
         get {
