@@ -147,47 +147,23 @@ object HttpServer {
     }
 
     lazy val camtTransactionRoutes = concat(
-      path(Segment) { uuidString =>
+      pathEndOrSingleSlash {
         get {
-          complete(
-            HttpEntity(
-              ContentTypes.`application/json`,
-              Await.result(camtTransactionRepository.find(UUID.fromString(uuidString)), Duration.apply(20, TimeUnit.SECONDS)).toJson.toString
-            )
-          )
+          parameters("iban".?, "startvaluedate".?, "endvaluedate".?) {
+            (iban, startValueDate, endValueDate) =>
+              println(s"iban = $iban")
+              val startValueLocalDateTime = LocalDateTime.parse(startValueDate.getOrElse("2019-01-01T00:00"))
+              val endValueLocalDateTime = endValueDate match {
+                case None => LocalDateTime.now()
+                case Some(string: String) => LocalDateTime.parse(string)
+              }
+              val camtTransactionsFuture = camtTransactionRepository.getCamtTransactions(iban, startValueLocalDateTime, endValueLocalDateTime)
+              val camtTransactionList: Seq[CamtTransaction] = Await.result(camtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
+              val camtTransactionJson = camtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
+              complete(HttpEntity(ContentTypes.`application/json`, camtTransactionJson.toString))
+          }
         }
       },
-      //pathEndOrSingleSlash {
-      get {
-        parameters("iban".?, "startvaluedate".?, "endvaluedate".?) {
-          (iban, startValueDate, endValueDate) =>
-            println(s"iban = $iban")
-            val startValueLocalDateTime = LocalDateTime.parse(startValueDate.getOrElse("2019-01-01T00:00"))
-            val endValueLocalDateTime = endValueDate match {
-              case None => LocalDateTime.now()
-              case Some(string: String) => LocalDateTime.parse(string)
-            }
-            val camtTransactionsFuture = camtTransactionRepository.getCamtTransactions(iban, startValueLocalDateTime, endValueLocalDateTime)
-            val camtTransactionList: Seq[CamtTransaction] = Await.result(camtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
-            val camtTransactionJson = camtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
-            complete(HttpEntity(ContentTypes.`application/json`, camtTransactionJson.toString))
-        }
-      },
-      /*get & path(uuid: UUID) { uuid =>
-        parameters("iban".?, "startvaluedate".?, "endvaluedate".?) {
-          (iban, startValueDate, endValueDate) =>
-            println(s"iban = $iban")
-            val startValueLocalDateTime = LocalDateTime.parse(startValueDate.getOrElse("2019-01-01T00:00"))
-            val endValueLocalDateTime = endValueDate match {
-              case None => LocalDateTime.now()
-              case Some(string: String) => LocalDateTime.parse(string)
-            }
-            val camtTransactionsFuture = camtTransactionRepository.getCamtTransactions(iban, startValueLocalDateTime, endValueLocalDateTime)
-            val camtTransactionList: Seq[CamtTransaction] = Await.result(camtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
-            val camtTransactionJson = camtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
-            complete(HttpEntity(ContentTypes.`application/json`, camtTransactionJson.toString))
-        }
-      },*/
       path("small") {
         get {
           parameters("iban".?, "startvaluedate".?, "endvaluedate".?) {
@@ -203,6 +179,16 @@ object HttpServer {
               val smallCamtTransactionJson = smallCamtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
               complete(HttpEntity(ContentTypes.`application/json`, smallCamtTransactionJson.toString))
           }
+        }
+      },
+      path(Segment) { uuidString =>
+        get {
+          complete(
+            HttpEntity(
+              ContentTypes.`application/json`,
+              Await.result(camtTransactionRepository.find(UUID.fromString(uuidString)), Duration.apply(20, TimeUnit.SECONDS)).toJson.toString
+            )
+          )
         }
       }
     )
