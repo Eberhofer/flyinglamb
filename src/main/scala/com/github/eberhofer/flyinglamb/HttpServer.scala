@@ -9,6 +9,7 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
+import akka.http.scaladsl.server.{PathMatcher, PathMatcher1}
 
 import scala.io.StdIn
 import org.postgresql.util.PSQLException
@@ -56,12 +57,16 @@ object HttpServer {
   import CamtTransactionJsonProtocol._
   import ch.megard.akka.http.cors.scaladsl.CorsDirectives._
 
+
+
   def main(args: Array[String]) {
 
     implicit val system = ActorSystem("my-system")
     //implicit val materializer = ActorMaterializer()
     // needed for the future flatMap/onComplete in the end
     implicit val executionContext = system.dispatcher
+    val camtTransactionRepository = new CamtTransactionRepository()
+
 
 
     val db = Database.forConfig("flyinglamb")
@@ -77,110 +82,130 @@ object HttpServer {
     val port = system.settings.config.getInt("httpServer.port")
     println(s"port $port")
 
-    val route = concat(
-      pathEndOrSingleSlash {
-        get {
-          complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "<h1>top level</h1>"))
-        }
-      },
-      path("credentials") {
-        pathEndOrSingleSlash {
-          post {
-            decodeRequest {
-              entity(as[Credential]) { credential =>
-                val credentialsQuery: DBIO[Seq[Credential]] = TableQuery[CredentialTable].filter(c => c.email === credential.email).result
-                val credentials: Seq[Credential] = Await.result(
-                  db.run(credentialsQuery),
-                  Duration.apply(20, TimeUnit.SECONDS)
-                )
-                credentials match {
-                  case h :: Nil => complete(StatusCodes.BadRequest, "Email already exists.")
-                  case Nil => complete(StatusCodes.Created, createCredential(credential))
-                }
-              }
-            }
-          }
-        }
-      },
-      path("auth") {
-        pathEndOrSingleSlash {
-          post {
-            decodeRequest {
-              entity(as[Credential]) { credential =>
-                val credentialsQuery: DBIO[Seq[Credential]] = TableQuery[CredentialTable].filter(c => c.email === credential.email).result
-                val credentialsCandidate: Option[Credential] = Await.result(
-                  db.run(credentialsQuery),
-                  Duration.apply(20, TimeUnit.SECONDS)
-                ).headOption
-                credentialsCandidate match {
-                  case Some(c) => credential.password.isBcryptedSafeBounded(c.password) match {
-                    case Success(true) =>
-                      complete(StatusCodes.OK, c)
-                    case _ => complete(StatusCodes.Unauthorized, "No user matched the credentials.")
-                  }
-                  case _ => complete(StatusCodes.Unauthorized, "No user matched the credentials.")
-                }
-              }
-            }
-          }
-        }
-      },
-      path("camt") {
-        get {
-          complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "<h1>Say hello to akka-http</h1>"))
-        }
-      },
-      handleRejections(corsRejectionHandler) {
-        cors() {
-          pathPrefix("camttransactions"){
-            concat(
-              //pathEndOrSingleSlash {
-              get {
-                parameters("iban".?, "startvaluedate".?, "endvaluedate".?) {
-                  (iban, startValueDate, endValueDate) =>
-                    println(s"iban = $iban")
-                    val startValueLocalDateTime = LocalDateTime.parse(startValueDate.getOrElse("2019-01-01T00:00"))
-                    val endValueLocalDateTime = endValueDate match {
-                      case None => LocalDateTime.now()
-                      case Some(string: String) => LocalDateTime.parse(string)
-                    }
-                    val camtTransactions = for {
-                      ct <- TableQuery[CamtTransactionTable]
-                      if ct.iban === (if (iban.isEmpty) ct.iban else iban.get)
-                      if ct.valueDate >= startValueLocalDateTime && ct.valueDate <= endValueLocalDateTime
-                    } yield ct
-                    val camtTransactionsAction: DBIO[Seq[CamtTransaction]] = camtTransactions.result
-                    val camtTransactionsFuture = db.run(camtTransactionsAction)
-                    val camtTransactionList: Seq[CamtTransaction] = Await.result(camtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
-                    val camtTransactionJson = camtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
-                    complete(HttpEntity(ContentTypes.`application/json`, camtTransactionJson.toString))
-                }
-              },
-            path("small") {
-                get {
-                  val camtTransactions = TableQuery[CamtTransactionTable]
-                  val camtTransactionsAction: DBIO[Seq[CamtTransaction]] = camtTransactions.result
-                  val camtTransactionsFuture = db.run(camtTransactionsAction)
-                  val camtTransactionList: Seq[CamtTransaction] = Await.result(camtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
-                  val smallCamtTransactionList = camtTransactionList.map(_.smallCamtTransaction)
-                  val smallCamtTransactionJson = smallCamtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
-                  complete(HttpEntity(ContentTypes.`application/json`, smallCamtTransactionJson.toString))
-                }
-              }
+    lazy val route = handleRejections(corsRejectionHandler) {
+      cors() {
+        concat(
+          pathEndOrSingleSlash (indexRoute),
+          pathPrefix("credentials") (credentialsRoute),
+          pathPrefix("auth") (authRoute),
+          pathPrefix("camttransactions") (camtTransactionRoutes),
+          pathPrefix("process") (processRoutes)
+        )
+      }
+    }
+
+    lazy val credentialsRoute = pathEndOrSingleSlash {
+      post {
+        decodeRequest {
+          entity(as[Credential]) { credential =>
+            val credentialsQuery: DBIO[Seq[Credential]] = TableQuery[CredentialTable].filter(c => c.email === credential.email).result
+            val credentials: Seq[Credential] = Await.result(
+              db.run(credentialsQuery),
+              Duration.apply(20, TimeUnit.SECONDS)
             )
+            credentials match {
+              case h :: Nil => complete(StatusCodes.BadRequest, "Email already exists.")
+              case Nil => complete(StatusCodes.Created, createCredential(credential))
+            }
           }
         }
-      },
-      path("processCamtTransactions"){
+      }
+    }
+
+    lazy val authRoute = pathEndOrSingleSlash {
+      post {
+        decodeRequest {
+          entity(as[Credential]) { credential =>
+            val credentialsQuery: DBIO[Seq[Credential]] = TableQuery[CredentialTable].filter(c => c.email === credential.email).result
+            val credentialsCandidate: Option[Credential] = Await.result(
+              db.run(credentialsQuery),
+              Duration.apply(20, TimeUnit.SECONDS)
+            ).headOption
+            credentialsCandidate match {
+              case Some(c) => credential.password.isBcryptedSafeBounded(c.password) match {
+                case Success(true) =>
+                  complete(StatusCodes.OK, c)
+                case _ => complete(StatusCodes.Unauthorized, "No user matched the credentials.")
+              }
+              case _ => complete(StatusCodes.Unauthorized, "No user matched the credentials.")
+            }
+          }
+        }
+      }
+    }
+
+    lazy val indexRoute = get {
+      complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "<h1>top level</h1>"))
+    }
+
+    lazy val processRoutes = path("camttransactions"){
+      get {
+        CamtService.apply
+        println("done")
+        complete(HttpEntity(ContentTypes.`text/html(UTF-8)`,"<h1>execution of camt service finished</h1>"))
+      }
+    }
+
+    lazy val camtTransactionRoutes = concat(
+      path(Segment) { uuidString =>
         get {
-          CamtService.apply
-          println("done")
-          complete(HttpEntity(ContentTypes.`text/html(UTF-8)`,"<h1>execution of camt service finished</h1>"))
+          complete(
+            HttpEntity(
+              ContentTypes.`application/json`,
+              Await.result(camtTransactionRepository.find(UUID.fromString(uuidString)), Duration.apply(20, TimeUnit.SECONDS)).toJson.toString
+            )
+          )
+        }
+      },
+      //pathEndOrSingleSlash {
+      get {
+        parameters("iban".?, "startvaluedate".?, "endvaluedate".?) {
+          (iban, startValueDate, endValueDate) =>
+            println(s"iban = $iban")
+            val startValueLocalDateTime = LocalDateTime.parse(startValueDate.getOrElse("2019-01-01T00:00"))
+            val endValueLocalDateTime = endValueDate match {
+              case None => LocalDateTime.now()
+              case Some(string: String) => LocalDateTime.parse(string)
+            }
+            val camtTransactionsFuture = camtTransactionRepository.getCamtTransactions(iban, startValueLocalDateTime, endValueLocalDateTime)
+            val camtTransactionList: Seq[CamtTransaction] = Await.result(camtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
+            val camtTransactionJson = camtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
+            complete(HttpEntity(ContentTypes.`application/json`, camtTransactionJson.toString))
+        }
+      },
+      /*get & path(uuid: UUID) { uuid =>
+        parameters("iban".?, "startvaluedate".?, "endvaluedate".?) {
+          (iban, startValueDate, endValueDate) =>
+            println(s"iban = $iban")
+            val startValueLocalDateTime = LocalDateTime.parse(startValueDate.getOrElse("2019-01-01T00:00"))
+            val endValueLocalDateTime = endValueDate match {
+              case None => LocalDateTime.now()
+              case Some(string: String) => LocalDateTime.parse(string)
+            }
+            val camtTransactionsFuture = camtTransactionRepository.getCamtTransactions(iban, startValueLocalDateTime, endValueLocalDateTime)
+            val camtTransactionList: Seq[CamtTransaction] = Await.result(camtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
+            val camtTransactionJson = camtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
+            complete(HttpEntity(ContentTypes.`application/json`, camtTransactionJson.toString))
+        }
+      },*/
+      path("small") {
+        get {
+          parameters("iban".?, "startvaluedate".?, "endvaluedate".?) {
+            (iban, startValueDate, endValueDate) =>
+              println(s"iban = $iban")
+              val startValueLocalDateTime = LocalDateTime.parse(startValueDate.getOrElse("2019-01-01T00:00"))
+              val endValueLocalDateTime = endValueDate match {
+                case None => LocalDateTime.now()
+                case Some(string: String) => LocalDateTime.parse(string)
+              }
+              val smallCamtTransactionsFuture = camtTransactionRepository.getSmallCamtTransactions(iban, startValueLocalDateTime, endValueLocalDateTime)
+              val smallCamtTransactionList: Seq[SmallCamtTransaction] = Await.result(smallCamtTransactionsFuture, Duration.apply(20, TimeUnit.SECONDS))
+              val smallCamtTransactionJson = smallCamtTransactionList.toJson //.map(c => SmallCamtTransaction(c.iban, c.bookingDate, c.valueDate, c.currency, c.amount, c.additionalInfo)).toJson
+              complete(HttpEntity(ContentTypes.`application/json`, smallCamtTransactionJson.toString))
+          }
         }
       }
     )
-
-
 
     val bindingFuture = Http().bindAndHandle(route, "localhost", port)
 
