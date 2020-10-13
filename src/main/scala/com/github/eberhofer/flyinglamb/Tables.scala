@@ -64,10 +64,22 @@ extends Table[CamtTransaction](tag, "camt_transaction") {
 
 
 class CredentialTable(tag: Tag)
-  extends Table[Credential](tag, "credential") {
+  extends Table[AuthCredential](tag, "credential") {
   def id: Rep[UUID] = column[UUID]("id", O.PrimaryKey, O.Default(UUID.randomUUID()))
   def email: Rep[String] = column[String]("email")
   def password: Rep[String] = column[String]("password")
 
-  def * : ProvenShape[Credential] = (id.?, email, password) <> ((Credential.apply _).tupled, Credential.unapply)
+  def * : ProvenShape[AuthCredential] = (id.?, email, password) <> ((AuthCredential.apply _).tupled, AuthCredential.unapply)
+}
+
+class AuthTokenTable(tag: Tag)
+  extends Table[AuthToken](tag, "auth_token") {
+  def id: Rep[UUID] = column[UUID]("id", O.PrimaryKey, O.Default(UUID.randomUUID()))
+  def credentialId: Rep[UUID] = column[UUID]("credential_id")
+  def tokenUserName: Rep[UUID] = column[UUID]("token_user_name", O.Default(UUID.randomUUID()))
+  def tokenSecret: Rep[UUID] = column[UUID]("token_secret", O.Default(UUID.randomUUID()))
+  def validUntil: Rep[LocalDateTime] = column[LocalDateTime]("valid_until")
+  def isLoggedOut: Rep[Boolean] = column[Boolean]("is_logged_out")
+
+  def * : ProvenShape[AuthToken] = (id.?, credentialId, tokenUserName, tokenSecret, validUntil, isLoggedOut) <> ((AuthToken.apply _).tupled, AuthToken.unapply)
 }

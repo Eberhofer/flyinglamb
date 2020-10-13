@@ -3,7 +3,6 @@ package com.github.eberhofer.flyinglamb
 import java.util.UUID
 import java.time.LocalDateTime
 
-
 sealed trait Model
 
 case class CamtFile(
@@ -41,7 +40,7 @@ case class CamtTransaction(
                           transactionReferences: String,  // TODO: Elem,
                           bankTransactionCode: String // TODO:  Elem
                           ) extends Model {
-  def smallCamtTransaction = SmallCamtTransaction(id, iban, bookingDate, valueDate, currency, amount, additionalInfo)
+  def smallCamtTransaction: SmallCamtTransaction = SmallCamtTransaction(id, iban, bookingDate, valueDate, currency, amount, additionalInfo)
 }
 
 case class CamtTransactions(camtTransactions: Seq[CamtTransaction])
@@ -59,17 +58,30 @@ case class SmallCamtTransaction(
 case class SmallCamtTransactions(smallCamtTransactions: Seq[SmallCamtTransaction])
 
 case class StockTransaction(
-                           id: Option[UUID],
-                           name: String
+                             id: Option[UUID],
+                             name: String
                            )
 case class StockTransactions(stockTransactions: Seq[StockTransaction])
 
-case class Credential(
-               id: Option[UUID],
-               email: String,
-               password: String
-               )
+case class AuthCredential(
+                       id: Option[UUID],
+                       email: String,
+                       password: String
+               ) {
 
-case class Credentials(credentials: Seq[Credential])
+}
 
-case class Auth()
+case class AuthCredentials(credentials: Seq[AuthCredential])
+
+case class AuthToken(
+                       id: Option[UUID],
+                       credentialId: UUID,
+                       tokenUserName: UUID,
+                       tokenSecret: UUID,
+                       valid_until: LocalDateTime,
+                       is_logged_out: Boolean = false
+                     ) {
+  def auth2BearerToken: String = tokenUserName.toString + ':' + tokenSecret.toString
+}
+
+case class AuthTokens(authTokens: Seq[AuthToken])

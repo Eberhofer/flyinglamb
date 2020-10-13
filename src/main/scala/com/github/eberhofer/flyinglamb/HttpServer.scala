@@ -3,12 +3,15 @@ package com.github.eberhofer.flyinglamb
 import java.time.LocalDateTime
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.Base64
+import java.nio.charset.StandardCharsets
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
+import akka.http.scaladsl.server.directives.Credentials
 import akka.http.scaladsl.server.{PathMatcher, PathMatcher1}
 
 import scala.io.StdIn
@@ -43,21 +46,16 @@ object CamtTransactionJsonProtocol extends SprayJsonSupport with DefaultJsonProt
     }
   }
 
-  implicit val camtTransactionFormat = jsonFormat12(CamtTransaction)
-  implicit val camtTransactionsFormat = jsonFormat1(CamtTransactions)
-  implicit val smallCamtTransactionFormat = jsonFormat7(SmallCamtTransaction)
-  implicit val smallCamtTransactionsFormat = jsonFormat1(SmallCamtTransactions)
-  implicit val credentialFormat = jsonFormat3(Credential)
+  implicit val camtTransactionFormat: RootJsonFormat[CamtTransaction] = jsonFormat12(CamtTransaction)
+  implicit val camtTransactionsFormat: RootJsonFormat[CamtTransactions] = jsonFormat1(CamtTransactions)
+  implicit val smallCamtTransactionFormat: RootJsonFormat[SmallCamtTransaction] = jsonFormat7(SmallCamtTransaction)
+  implicit val smallCamtTransactionsFormat: RootJsonFormat[SmallCamtTransactions] = jsonFormat1(SmallCamtTransactions)
+  implicit val credentialFormat: RootJsonFormat[AuthCredential] = jsonFormat3(AuthCredential)
 }
-
-
-
 
 object HttpServer {
   import CamtTransactionJsonProtocol._
   import ch.megard.akka.http.cors.scaladsl.CorsDirectives._
-
-
 
   def main(args: Array[String]) {
 
@@ -67,18 +65,22 @@ object HttpServer {
     implicit val executionContext = system.dispatcher
     val camtTransactionRepository = new CamtTransactionRepository()
 
-
-
     val db = Database.forConfig("flyinglamb")
-    def createCredential(credential: Credential): Future[Credential] = {
+    def createCredential(credential: AuthCredential): Future[AuthCredential] = {
       val credentials = TableQuery[CredentialTable]
-      val secureCredential: Credential = credential.password.bcryptSafeBounded match {
+      val secureCredential: AuthCredential = credential.password.bcryptSafeBounded match {
         case Success(pwHash) => credential.copy(id = Some(UUID.randomUUID()), password = pwHash)
         case Failure(error) => throw error
       }
       db.run(credentials returning credentials += secureCredential)
     }
 
+    def createAuthToken(credential: AuthCredential): AuthToken = {
+      val authTokens = TableQuery[AuthTokenTable]
+      val newAuthToken: AuthToken = AuthToken(Some(UUID.randomUUID()), credential.id.get, UUID.randomUUID(), UUID.randomUUID(), LocalDateTime.now())
+      db.run(authTokens += newAuthToken)
+      newAuthToken
+    }
     val port = system.settings.config.getInt("httpServer.port")
     println(s"port $port")
 
@@ -97,41 +99,62 @@ object HttpServer {
     lazy val credentialsRoute = pathEndOrSingleSlash {
       post {
         decodeRequest {
-          entity(as[Credential]) { credential =>
-            val credentialsQuery: DBIO[Seq[Credential]] = TableQuery[CredentialTable].filter(c => c.email === credential.email).result
-            val credentials: Seq[Credential] = Await.result(
+          entity(as[AuthCredential]) { credential =>
+            val credentialsQuery: DBIO[Seq[AuthCredential]] = TableQuery[CredentialTable].filter(c => c.email === credential.email).result
+            val credentials: Seq[AuthCredential] = Await.result(
               db.run(credentialsQuery),
               Duration.apply(20, TimeUnit.SECONDS)
             )
             credentials match {
-              case h :: Nil => complete(StatusCodes.BadRequest, "Email already exists.")
-              case Nil => complete(StatusCodes.Created, createCredential(credential))
+              case Vector() =>
+                createCredential(credential)
+                complete(StatusCodes.Created, "credentials created")
+              case _ =>
+                complete(StatusCodes.BadRequest, "Email already exists.")
             }
           }
         }
       }
     }
 
+    def BasicAuthAuthenticator(credentials: Credentials): Option[AuthCredential] = credentials match {
+      case p@Credentials.Provided(_) =>
+        val credentialsQuery: DBIO[Seq[AuthCredential]] = TableQuery[CredentialTable].filter(c => c.email === p.identifier).result
+        val credentialsCandidate: Option[AuthCredential] = Await.result(
+          db.run(credentialsQuery),
+          Duration.apply(20, TimeUnit.SECONDS)
+        ).headOption
+        credentialsCandidate match {
+          case Some(c) =>
+            if (p.verify(c.password)) Some(c) else None;
+          case _ => None
+        }
+      case _ => None
+    }
+
     lazy val authRoute = pathEndOrSingleSlash {
-      post {
-        decodeRequest {
-          entity(as[Credential]) { credential =>
-            val credentialsQuery: DBIO[Seq[Credential]] = TableQuery[CredentialTable].filter(c => c.email === credential.email).result
-            val credentialsCandidate: Option[Credential] = Await.result(
-              db.run(credentialsQuery),
-              Duration.apply(20, TimeUnit.SECONDS)
-            ).headOption
-            credentialsCandidate match {
-              case Some(c) => credential.password.isBcryptedSafeBounded(c.password) match {
-                case Success(true) =>
-                  complete(StatusCodes.OK, c)
+      //authenticateBasic(realm = "auth", BasicAuthAuthenticator)
+        post {
+          decodeRequest {
+            entity(as[AuthCredential]) { credential =>
+              val credentialsQuery: DBIO[Seq[AuthCredential]] = TableQuery[CredentialTable].filter(c => c.email === credential.email).result
+              val credentialsCandidate: Option[AuthCredential] = Await.result(
+                db.run(credentialsQuery),
+                Duration.apply(20, TimeUnit.SECONDS)
+              ).headOption
+              credentialsCandidate match {
+                case Some(c) => credential.password.isBcryptedSafeBounded(c.password) match {
+                  case Success(true) =>
+                    val authToken = createAuthToken(c)
+                    complete(StatusCodes.OK, Base64.getEncoder.encodeToString(authToken.auth2BearerToken.getBytes))
+                  case _ => complete(StatusCodes.Unauthorized, "No user matched the credentials.")
+                }
                 case _ => complete(StatusCodes.Unauthorized, "No user matched the credentials.")
               }
-              case _ => complete(StatusCodes.Unauthorized, "No user matched the credentials.")
             }
           }
         }
-      }
+      //}
     }
 
     lazy val indexRoute = get {
