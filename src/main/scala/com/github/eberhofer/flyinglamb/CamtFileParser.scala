@@ -27,10 +27,10 @@ class CamtFileParser(context: ActorContext[CamtFileParser.CamtFileParserRequest]
   import CamtFileParser._
   context.log.info(s"CamtFileParser started ${fileName}")
 
-  val xml = XML.loadFile(filePath)
-  val isV4 = xml.attributes.toString.contains("camt.053.001.04") // TODO implement proper version handling
-  val iban = (xml \ "BkToCstmrStmt" \ "Stmt" \ "Acct" \ "Id" \ "IBAN").text
-  val balances = (xml \ "BkToCstmrStmt" \ "Stmt" \ "Bal")
+  val xml: Elem = XML.loadFile(filePath)
+  val isV4: Boolean = xml.attributes.toString.contains("camt.053.001.04") // TODO implement proper version handling
+  val iban: String = (xml \ "BkToCstmrStmt" \ "Stmt" \ "Acct" \ "Id" \ "IBAN").text
+  val balances: Seq[(String, String, BigDecimal, LocalDateTime)]= (xml \ "BkToCstmrStmt" \ "Stmt" \ "Bal")
     .map{ y =>
       (
         (y \ "Tp" \ "CdOrPrtry" \ "Cd").text,
@@ -44,7 +44,7 @@ class CamtFileParser(context: ActorContext[CamtFileParser.CamtFileParserRequest]
   } else {
     (balances.filter(t => t._1 == "OPBD").head._4, balances.filter(t => t._1 == "CLBD").head._4)
   }
-  val camtFile = CamtFile(
+  val camtFile: CamtFile = CamtFile(
     id = Some(UUID.randomUUID()),
     fileName = fileName,
     statementId = (xml \ "BkToCstmrStmt" \ "Stmt" \ "Id").text,
@@ -59,7 +59,7 @@ class CamtFileParser(context: ActorContext[CamtFileParser.CamtFileParserRequest]
     closeBalance = balances.filter(t => t._1 == "CLBD").head._3
   )
 
-  val camtFileContent = CamtFileContent(camtFile.id.get, xml.toString)
+  val camtFileContent: CamtFileContent = CamtFileContent(camtFile.id.get, xml.toString)
 
   context.log.info(s"iban: ${camtFile.iban}")
 

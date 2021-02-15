@@ -63,7 +63,7 @@ case class StockTransaction(
                            )
 case class StockTransactions(stockTransactions: Seq[StockTransaction])
 
-case class AuthCredential(
+case class UserCredential(
                        id: Option[UUID],
                        email: String,
                        password: String
@@ -71,7 +71,7 @@ case class AuthCredential(
 
 }
 
-case class AuthCredentials(credentials: Seq[AuthCredential])
+case class UserCredentials(credentials: Seq[UserCredential])
 
 case class AuthToken(
                        id: Option[UUID],

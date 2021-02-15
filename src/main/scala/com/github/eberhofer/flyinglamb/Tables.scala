@@ -64,12 +64,12 @@ extends Table[CamtTransaction](tag, "camt_transaction") {
 
 
 class CredentialTable(tag: Tag)
-  extends Table[AuthCredential](tag, "credential") {
+  extends Table[UserCredential](tag, "credential") {
   def id: Rep[UUID] = column[UUID]("id", O.PrimaryKey, O.Default(UUID.randomUUID()))
   def email: Rep[String] = column[String]("email")
   def password: Rep[String] = column[String]("password")
 
-  def * : ProvenShape[AuthCredential] = (id.?, email, password) <> ((AuthCredential.apply _).tupled, AuthCredential.unapply)
+  def * : ProvenShape[UserCredential] = (id.?, email, password) <> ((UserCredential.apply _).tupled, UserCredential.unapply)
 }
 
 class AuthTokenTable(tag: Tag)
